@@ -1,0 +1,51 @@
+name: build
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+      # Root directory for doing Ghidra work (building, etc.)
+        root: ["/tmp/ghidra"]
+        # Ghidra build version(s)
+        version: [10.3]
+        include:
+          - version: 10.3
+            release_url: "https://github.com/NationalSecurityAgency/ghidra/releases/download/Ghidra_10.3_build"
+            filename: "ghidra_10.3_PUBLIC_20230510.zip"
+            directory: "ghidra_10.3_PUBLIC"
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Download Ghidra
+        run: |
+          wget -P ${{matrix.root}} -q ${{matrix.release_url}}/${{matrix.filename}}
+          unzip -d ${{matrix.root}} -q ${{matrix.root}}/${{matrix.filename}}
+
+      - name: Setup Java
+        uses: actions/setup-java@v3
+        with:
+          java-version: 17
+          distribution: temurin
+
+      - name: Build plugin via gradle
+        run: gradle -PGHIDRA_INSTALL_DIR=${{matrix.root}}/${{matrix.directory}} -PZIP_NAME_PREFIX=ghidra_${{matrix.version}}
+
+      # Uploading a ZIP file as an artifact creates a double-ZIP
+      - name: Fix artifact ZIP
+        run: unzip -d dist/${{matrix.version}} dist/*_${{matrix.version}}_*.zip
+
+      # Upload the unzipped contents as the artifact to create a Ghidra-loadable ZIP file
+      - name: Upload artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: ghidra_${{matrix.version}}_Cartographer
+          path: dist/${{matrix.version}}/*
+          if-no-files-found: error
