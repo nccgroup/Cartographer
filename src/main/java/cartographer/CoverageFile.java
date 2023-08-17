@@ -192,11 +192,18 @@ public class CoverageFile {
             line = reader.readLine();
             String[] moduleData = line.split(",");
 
-            // Get the parsed data
+            // Intialize parerntId and base to 0 for earlier versions of DrCov
+            int parentId=0, base=0;
+
+            // Initialize version agnostic variables
             int moduleId = Integer.parseInt(moduleData[0].trim());
-            int parentId = Integer.parseInt(moduleData[1].trim());
-            int base = Integer.parseInt(moduleData[5].trim(), 16);
             String name = moduleData[moduleData.length-1].trim();
+
+            // If DrCov is version 5 then initialize appropriately
+            if(version == 5){
+                parentId = Integer.parseInt(moduleData[1].trim());
+                base = Integer.parseInt(moduleData[5].trim(), 16);
+            }
 
             // Create a new DrCov module
             DrCovModule module = new DrCovModule(moduleId, parentId, base, name);
