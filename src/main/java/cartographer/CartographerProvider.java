@@ -33,7 +33,7 @@ import ghidra.docking.settings.Settings;
 import ghidra.framework.options.OptionsChangeListener;
 import ghidra.framework.options.ToolOptions;
 import ghidra.framework.plugintool.ComponentProviderAdapter;
-import ghidra.framework.plugintool.util.OptionsService;
+import docking.options.OptionsService;
 import ghidra.util.*;
 import ghidra.util.table.column.AbstractGColumnRenderer;
 import ghidra.util.task.TaskMonitor;
