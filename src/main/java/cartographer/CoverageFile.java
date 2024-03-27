@@ -134,7 +134,7 @@ public class CoverageFile {
 
         // Whoops!
         catch (Exception e) {
-            throw new AssertionError(e.getMessage());
+            throw new AssertionError(e);
         }
     }
     
@@ -237,10 +237,13 @@ public class CoverageFile {
             if (isBinary) {
                 int offset = readInt(reader);
                 short size = readShort(reader);
-                short moduleId = readShort(reader);
+                int moduleId = readShort(reader) & 0xFFFF;
 
-                // Add the block to the module
-                drcovModules.get(moduleId).addBlock(offset,  size,  moduleId);
+                // Make sure the module ID is valid
+                if(moduleId < numModules){
+                    // Add the block to the module
+                    drcovModules.get(moduleId).addBlock(offset, size, moduleId);
+                }
             }
 
             // Read a text block
@@ -248,12 +251,15 @@ public class CoverageFile {
                 line = reader.readLine();
                 match = Pattern.compile("module\\[\\s*(\\d+)\\]: 0x([0-9a-fA-F]+?),\\s*(\\d+)").matcher(line);
                 if (match.find()) {
-                    short moduleId = Short.parseShort(match.group(1));
+                    int moduleId = Integer.parseInt(match.group(1)) & 0xFFFF;
                     int offset = Integer.parseInt(match.group(2), 16);
                     short size = Short.parseShort(match.group(3));
                     
-                    // Add the block to the module
-                    drcovModules.get(moduleId).addBlock(offset, size, moduleId);
+                    // Make sure the module ID is valid
+                    if(moduleId < numModules){
+                        // Add the block to the module
+                        drcovModules.get(moduleId).addBlock(offset, size, moduleId);
+                    }
                 }
             }
         }
@@ -407,7 +413,7 @@ public class CoverageFile {
          * @param size    Size of the block in bytes
          * @param module  Module ID
          */
-        private void addBlock(int offset, short size, short module) {
+        private void addBlock(int offset, short size, int module) {
             BasicBlock basicBlock = new BasicBlock(offset, size, module);
             this.getBasicBlocks().add(basicBlock);
         }
@@ -444,7 +450,7 @@ public class CoverageFile {
     public class BasicBlock {
         private int offset;
         private short size;
-        private short moduleId;
+        private int moduleId;
         private AddressSpace addressSpace;
 
         /**
@@ -454,7 +460,7 @@ public class CoverageFile {
          * @param size      Size of the block in bytes
          * @param moduleId  Module ID
          */
-        public BasicBlock(int offset, short size, short moduleId) {
+        public BasicBlock(int offset, short size, int moduleId) {
             this.offset = offset;
             this.size = size;
             this.moduleId = moduleId;
