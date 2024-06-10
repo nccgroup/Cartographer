@@ -30,6 +30,7 @@ import ghidra.program.model.address.Address;
 import ghidra.program.model.address.AddressSpace;
 import ghidra.program.model.listing.Function;
 import ghidra.program.model.listing.Program;
+import ghidra.util.Msg;
 
 /**
  * Represents a loaded coverage file with processed code coverage data.
@@ -82,6 +83,7 @@ public class CoverageFile {
      * @throws IOException  If an I/O exception occurred
      */
     public CoverageFile(String filename) throws IOException {
+        Msg.info("CoverageFile", "Loading filename: "+filename);
 
         // Filename without the pathname
         this.filename = filename.substring(filename.lastIndexOf('/') + 1);
@@ -185,22 +187,33 @@ public class CoverageFile {
         // Skip the column names
         reader.readLine();
 
-        // Parse version 5 modules
+        // Parse modules
         for (int i = 0; i < numModules; i++) {
 
             // Read each module
             line = reader.readLine();
             String[] moduleData = line.split(",");
 
-            // Get the parsed data
-            int moduleId = Integer.parseInt(moduleData[0].trim());
-            int parentId = Integer.parseInt(moduleData[1].trim());
-            int base = Integer.parseInt(moduleData[5].trim(), 16);
-            String name = moduleData[moduleData.length-1].trim();
-
-            // Create a new DrCov module
-            DrCovModule module = new DrCovModule(moduleId, parentId, base, name);
-            drcovModules.add(module);
+            // Add module data parsed by Drcov version
+            switch (version) {
+                case 1:
+                    drcovModules.add(parseModuleV1(moduleData));
+                    break;
+                case 2:
+                    drcovModules.add(parseModuleV2(moduleData));
+                    break;
+                case 3:
+                    drcovModules.add(parseModuleV3(moduleData));
+                    break;
+                case 4:
+                    drcovModules.add(parseModuleV4(moduleData));
+                    break;
+                case 5:
+                    drcovModules.add(parseModuleV5(moduleData));
+                    break;
+                default:
+                    break;
+            }
         }
 
         // Read the BB Table line
@@ -239,6 +252,8 @@ public class CoverageFile {
                 short size = readShort(reader);
                 int moduleId = readShort(reader) & 0xFFFF;
 
+                Msg.info("CoverageFile", "Adding block moduleId: " + moduleId + " offset: " + offset + " size: " + size);
+
                 // Make sure the module ID is valid
                 if(moduleId < numModules){
                     // Add the block to the module
@@ -267,7 +282,106 @@ public class CoverageFile {
         // Populate the module list
         populateModules(drcovModules);
     }
-    
+
+    // Parse DrcovModule entry v1, table: id, size, path
+    private DrCovModule parseModuleV1(String[] moduleData){
+
+        int moduleId = Integer.parseInt(moduleData[0].trim());
+
+        // parentId is 0 as it was not introduced until version 3 of Drcov module entry
+        int parentId = 0;
+
+        // base is set as size as base was not introduced until version 2 of Drcov module entry
+        // likely that this Cartographer does not support V1 of Drcov format.
+        int base = Integer.parseInt(moduleData[1].trim().replace("0x",""), 16);
+
+        String name = moduleData[moduleData.length-1].trim();
+
+        return new DrCovModule(
+            moduleId,
+            parentId,
+            base,
+            name
+        );
+    }
+
+    // Parse DrcovModule entry v2, table: id, base, end, entry, checksum (windows), timestamp (windows), path
+    private DrCovModule parseModuleV2(String[] moduleData){
+
+        int moduleId = Integer.parseInt(moduleData[0].trim());
+
+        // parentId is 0 as it was not introduced until version 3 of Drcov module entry
+        int parentId = 0;
+
+        int base = 0;
+
+        String name = moduleData[moduleData.length-1].trim();
+
+        return new DrCovModule(
+            moduleId,
+            parentId,
+            base,
+            name
+        );
+    }
+
+    // Parse DrcovModule entry v3, table: id, containing_id, base, end, entry, checksum (windows), timestamp (windows), path
+    private DrCovModule parseModuleV3(String[] moduleData){
+
+        int moduleId = Integer.parseInt(moduleData[0].trim());
+
+        int parentId = Integer.parseInt(moduleData[1].trim());
+
+        int base = Integer.parseInt(moduleData[1].trim().replace("0x",""), 16);
+
+        String name = moduleData[moduleData.length-1].trim();
+
+        return new DrCovModule(
+            moduleId,
+            parentId,
+            base,
+            name
+        );
+    }
+
+    // Parse DrcovModule entry v4, table: id, containing_id, base, end, entry, offset, checksum (windows), timestamp (windows), path
+    private DrCovModule parseModuleV4(String[] moduleData){
+
+        int moduleId = Integer.parseInt(moduleData[0].trim());
+
+        int parentId = Integer.parseInt(moduleData[1].trim());
+
+        int base = Integer.parseInt(moduleData[1].trim().replace("0x",""), 16);
+
+        String name = moduleData[moduleData.length-1].trim();
+
+        return new DrCovModule(
+            moduleId,
+            parentId,
+            base,
+            name
+        );
+    }
+
+    // Parse DrcovModule entry v5, table: id, containing_id, base, end, entry, offset, preferred_base, checksum (windows), timestamp (windows), path
+    private DrCovModule parseModuleV5(String[] moduleData){
+
+        int moduleId = Integer.parseInt(moduleData[0].trim());
+
+        int parentId = Integer.parseInt(moduleData[1].trim());
+
+        int base = Integer.parseInt(moduleData[1].trim().replace("0x",""), 16);
+
+        String name = moduleData[moduleData.length-1].trim();
+
+        return new DrCovModule(
+            moduleId,
+            parentId,
+            base,
+            name
+        );
+    }
+
     /**
      * Populates the map of usable modules with those read from the DRCOV file.
      * 
