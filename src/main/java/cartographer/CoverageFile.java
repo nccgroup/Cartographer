@@ -313,7 +313,7 @@ public class CoverageFile {
         // parentId is 0 as it was not introduced until version 3 of Drcov module entry
         int parentId = 0;
 
-        int base = 0;
+        int base = Integer.parseInt(moduleData[1].trim().replace("0x",""), 16);
 
         String name = moduleData[moduleData.length-1].trim();
 
