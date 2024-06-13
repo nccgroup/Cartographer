@@ -293,7 +293,7 @@ public class CoverageFile {
 
         // base is set as size as base was not introduced until version 2 of Drcov module entry
         // likely that this Cartographer does not support V1 of Drcov format.
-        int base = Integer.parseInt(moduleData[1].trim().replace("0x",""), 16);
+        long base = Long.parseUnsignedLong(moduleData[1].trim().replace("0x",""), 16);
 
         String name = moduleData[moduleData.length-1].trim();
 
@@ -313,7 +313,7 @@ public class CoverageFile {
         // parentId is 0 as it was not introduced until version 3 of Drcov module entry
         int parentId = 0;
 
-        int base = Integer.parseInt(moduleData[1].trim().replace("0x",""), 16);
+        long base = Long.parseUnsignedLong(moduleData[1].trim().replace("0x",""), 16);
 
         String name = moduleData[moduleData.length-1].trim();
 
@@ -332,7 +332,7 @@ public class CoverageFile {
 
         int parentId = Integer.parseInt(moduleData[1].trim());
 
-        int base = Integer.parseInt(moduleData[1].trim().replace("0x",""), 16);
+        long base = Long.parseUnsignedLong(moduleData[2].trim().replace("0x",""), 16);
 
         String name = moduleData[moduleData.length-1].trim();
 
@@ -351,7 +351,7 @@ public class CoverageFile {
 
         int parentId = Integer.parseInt(moduleData[1].trim());
 
-        int base = Integer.parseInt(moduleData[1].trim().replace("0x",""), 16);
+        long base = Long.parseUnsignedLong(moduleData[2].trim().replace("0x",""), 16);
 
         String name = moduleData[moduleData.length-1].trim();
 
@@ -370,7 +370,7 @@ public class CoverageFile {
 
         int parentId = Integer.parseInt(moduleData[1].trim());
 
-        int base = Integer.parseInt(moduleData[1].trim().replace("0x",""), 16);
+        long base = Long.parseUnsignedLong(moduleData[2].trim().replace("0x",""), 16);
 
         String name = moduleData[moduleData.length-1].trim();
 
@@ -403,7 +403,7 @@ public class CoverageFile {
 
             // Add each block to the new module
             for (BasicBlock block : module.getBasicBlocks()) {
-                newMod.addBlock(block.offset + module.base, block.size, block.moduleId);
+                newMod.addBlock(block.offset, block.size, block.moduleId);
             }
 
             // Add the new module to the module list
@@ -502,7 +502,7 @@ public class CoverageFile {
 
         private int moduleId;
         private int parentId;
-        private int base;
+        private long base;
         private String name;
 
         /**
@@ -513,7 +513,7 @@ public class CoverageFile {
          * @param base      Base memory address
          * @param name      Name of the file
          */
-        public DrCovModule(int moduleId, int parentId, int base, String name) {
+        public DrCovModule(int moduleId, int parentId, long base, String name) {
             this.moduleId = moduleId;
             this.parentId = parentId;
             this.base = base;
