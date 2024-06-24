@@ -21,6 +21,7 @@ import ghidra.program.model.address.AddressRange;
 import ghidra.program.model.address.AddressSet;
 import ghidra.program.model.address.AddressSetView;
 import ghidra.program.model.block.BasicBlockModel;
+import ghidra.program.model.block.SimpleBlockModel;
 import ghidra.program.model.block.CodeBlock;
 import ghidra.program.model.block.CodeBlockIterator;
 import ghidra.program.model.block.CodeBlockModel;
@@ -111,7 +112,7 @@ public class CoverageFunction {
         instructionsHit = 0;
 
         Program fnProgram = function.getProgram();
-        CodeBlockModel blockModel = new BasicBlockModel(fnProgram);
+        CodeBlockModel blockModel = new SimpleBlockModel(fnProgram);
 
         AddressSetView body = function.getBody();
 
