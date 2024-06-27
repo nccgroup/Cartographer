@@ -2,54 +2,62 @@ name: build
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [ "*" ]
   pull_request:
-    branches: [ "main" ]
+    branches: [ "*" ]
+  release:
+    types: [ published ]
+
 
 jobs:
   build:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        # Root directory for doing Ghidra work (building, etc.)
-        root: ["/tmp/ghidra"]
-        # Ghidra build version(s)
-        version: ["10.4", "11.0.2"]
-        include:
-          - version: "10.4"
-            release_url: "https://github.com/NationalSecurityAgency/ghidra/releases/download/Ghidra_10.4_build"
-            filename: "ghidra_10.4_PUBLIC_20230928.zip"
-            directory: "ghidra_10.4_PUBLIC"
-          - version: "11.0.2"
-            release_url: "https://github.com/NationalSecurityAgency/ghidra/releases/download/Ghidra_11.0.2_build"
-            filename: "ghidra_11.0.2_PUBLIC_20240326.zip"
-            directory: "ghidra_11.0.2_PUBLIC"
+        ghidra:
+          - "11.1.1"
+          - "11.0.3"
+          - "10.4"
 
     steps:
-      - uses: actions/checkout@v3
+      - name: Clone Repository
+        uses: actions/checkout@v4
 
-      - name: Download Ghidra
-        run: |
-          wget -P ${{matrix.root}} -q ${{matrix.release_url}}/${{matrix.filename}}
-          unzip -d ${{matrix.root}} -q ${{matrix.root}}/${{matrix.filename}}
-
-      - name: Setup Java
-        uses: actions/setup-java@v3
+      - name: Install Java
+        uses: actions/setup-java@v4
         with:
-          java-version: 17
-          distribution: temurin
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Install Gradle
+        uses: gradle/actions/setup-gradle@v3
+
+      - name: Install Ghidra ${{ matrix.ghidra }}
+        uses: antoniovazquezblanco/setup-ghidra@v2.0.3
+        with:
+          version: ${{ matrix.ghidra }}
 
       - name: Build plugin via gradle
-        run: gradle -PGHIDRA_INSTALL_DIR=${{matrix.root}}/${{matrix.directory}} -PZIP_NAME_PREFIX=ghidra_${{matrix.version}}
+        run: gradle -PZIP_NAME_PREFIX=ghidra_${{matrix.version}}
 
-      # Uploading a ZIP file as an artifact creates a double-ZIP
-      - name: Fix artifact ZIP
-        run: unzip -d dist/${{matrix.version}} dist/*_${{matrix.version}}_*.zip
-
-      # Upload the unzipped contents as the artifact to create a Ghidra-loadable ZIP file
-      - name: Upload artifact
-        uses: actions/upload-artifact@v3
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
         with:
-          name: ghidra_${{matrix.version}}_Cartographer
-          path: dist/${{matrix.version}}/*
-          if-no-files-found: error
+          name: Ghidra_${{ matrix.ghidra }}_Cartographer
+          path: dist/*Cartographer.zip
+
+  release:
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    needs: build
+    if: github.event_name == 'release' && github.event.action == 'published'
+
+    steps:
+      - name: Download binaries
+        uses: actions/download-artifact@v4
+
+      - name: Upload release ZIP
+        env:
+          GITHUB_TOKEN: ${{secrets.GITHUB_TOKEN}}
+        run: gh release upload ${{github.event.release.tag_name}} Ghidra_*/*.zip
