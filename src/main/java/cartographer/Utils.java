@@ -175,7 +175,7 @@ public class Utils {
             int charVal = (alphaId.charAt(i) - 'A') + 1;
             
             // Multiply the value using its current place in the string
-            output += charVal * Math.pow(26,  (processLength - i));
+            output += charVal * Math.pow(26, (processLength - i));
         }
         
         // Add the value of the last character to the output

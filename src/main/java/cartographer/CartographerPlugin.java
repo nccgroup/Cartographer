@@ -67,7 +67,7 @@ import cartographer.CoverageFile.*;
 @PluginInfo(
     status = PluginStatus.RELEASED,
     packageName = MiscellaneousPluginPackage.NAME,
-    category = PluginCategoryNames.DECOMPILER,
+    category = PluginCategoryNames.ANALYSIS,
     shortDescription = "Code coverage parser",
     description = "Plugin for loading and processing code coverage data."
 )
@@ -299,39 +299,10 @@ public class CartographerPlugin extends ProgramPlugin {
                         throw new AssertionError(e.getMessage());
                     }
     
-                    // Only process if no errors were encountered
-                    if (file.getStatusCode() != CoverageFile.STATUS.OK) { 
-                        Utils.showError(
-                            file.getStatusCode().toString(),
-                            file.getStatusMessage()
-                        );
-                        return;
+                    // Attempt to process the code coverage file
+                    if (!processCoverageFile(file)) {
+                    	return;
                     }
-    
-                    // Load the coverage file data
-                    if (!loadCoverageFile(file)) {
-                        return;
-                    }
-    
-                    // Set the selected file for the provider
-                    provider.setSelectedFile(file);
-                    
-                    // Set to loaded
-                    loaded = true;
-    
-                    // Reload the model
-                    provider.setFileLoadedFlag();
-                    provider.getModel().reload();
-    
-                    // Associate the model with the file
-                    file.setModel(provider.getModel());
-    
-                    // Give the loaded file a unique ID
-                    file.setId(loadedFiles.size());
-                    file.setAlphaId(Utils.idToAlpha(loadedFiles.size()));
-    
-                    // Add the file data to the list of loaded files
-                    loadedFiles.put(file.getId(), file);
                 });
             }
         };
@@ -502,7 +473,7 @@ public class CartographerPlugin extends ProgramPlugin {
      * 
      * @return      True if successfully loaded coverage file, false if not
      */
-    private boolean loadCoverageFile(CoverageFile file) {
+    public boolean loadCoverageFile(CoverageFile file) {
 
         // Clear out function map
         file.clearCoverageFunctions();
@@ -553,7 +524,7 @@ public class CartographerPlugin extends ProgramPlugin {
             );
 
             // Bail if no option was chosen
-            if (response ==  null) {
+            if (response == null) {
                 return false;
             }
 
@@ -591,6 +562,53 @@ public class CartographerPlugin extends ProgramPlugin {
 
         }
 
+        return true;
+    }
+    
+    /**
+     * Processes the given code coverage file.
+     * 
+     * @param file  Coverage file to process
+     * 
+     * @return      Whether or not the coverage file was successfully processed
+     */
+    public boolean processCoverageFile(CoverageFile file) {
+    	
+    	// Only process if no errors were encountered
+        if (file.getStatusCode() != CoverageFile.STATUS.OK) { 
+            Utils.showError(
+                file.getStatusCode().toString(),
+                file.getStatusMessage()
+            );
+            return false;
+        }
+
+        // Load the coverage file data
+        if (!loadCoverageFile(file)) {
+            return false;
+        }
+
+        // Set the selected file for the provider
+        provider.setSelectedFile(file);
+        
+        // Set to loaded
+        loaded = true;
+
+        // Reload the model
+        provider.setFileLoadedFlag();
+        provider.getModel().reload();
+
+        // Associate the model with the file
+        file.setModel(provider.getModel());
+
+        // Give the loaded file a unique ID
+        file.setId(loadedFiles.size());
+        file.setAlphaId(Utils.idToAlpha(loadedFiles.size()));
+
+        // Add the file data to the list of loaded files
+        loadedFiles.put(file.getId(), file);
+        
+        // Successfully processed
         return true;
     }
 

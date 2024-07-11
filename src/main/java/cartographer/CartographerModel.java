@@ -201,7 +201,7 @@ public class CartographerModel extends AddressBasedTableModel<TableRowObject> {
         @Override
         public String getValue(TableRowObject rowObject, Settings settings, Object data,
                 ServiceProvider services) throws IllegalArgumentException {
-            return String.format("0x%08X",  rowObject.getFunctionAddress().getUnsignedOffset());
+            return String.format("0x%08X", rowObject.getFunctionAddress().getUnsignedOffset());
         }
     }
 
