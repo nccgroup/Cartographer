@@ -594,7 +594,7 @@ public class CoverageFile {
                         Msg.warn(this, "Missing CCfunc for " + checkFunction.toString() + " at " + checkFunction.getEntryPoint());
                     }
                 } else {
-
+                    Msg.info(this, "Skipping BB for external function" + checkFunction);
                 }
             } else {
 
