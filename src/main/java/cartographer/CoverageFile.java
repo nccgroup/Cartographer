@@ -30,6 +30,7 @@ import ghidra.program.model.address.Address;
 import ghidra.program.model.address.AddressSpace;
 import ghidra.program.model.listing.Function;
 import ghidra.program.model.listing.Program;
+import ghidra.util.Msg;
 
 /**
  * Represents a loaded coverage file with processed code coverage data.
@@ -583,9 +584,20 @@ public class CoverageFile {
             // Make sure function being checked exists
             if (checkFunction != null) {
 
-                // Add the current execution address to the list of blocks hit
-                CoverageFunction ccFunc = this.ccFunctionMap.get(checkFunction);
-                ccFunc.addCoverageBlock(address, Integer.valueOf(block.size));
+                if (!checkFunction.isExternal()) {
+                    // Add the current execution address to the list of blocks hit
+                    CoverageFunction ccFunc = this.ccFunctionMap.get(checkFunction);
+
+                    if (ccFunc != null) {
+                        ccFunc.addCoverageBlock(address, Integer.valueOf(block.size));
+                    } else {
+                        Msg.warn(this, "Missing CCfunc for " + checkFunction.toString() + " at " + checkFunction.getEntryPoint());
+                    }
+                } else {
+
+                }
+            } else {
+
             }
         }
     }
