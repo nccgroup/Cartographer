@@ -265,7 +265,7 @@ public class CoverageFile {
         // Populate the module list
         populateModules(drcovModules);
     }
-    
+
     /**
      * Parses a DRCOV module.
      * 

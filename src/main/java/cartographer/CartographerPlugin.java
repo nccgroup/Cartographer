@@ -20,6 +20,8 @@ import docking.ActionContext;
 import docking.action.DockingAction;
 import docking.action.MenuData;
 import docking.tool.ToolConstants;
+import docking.widgets.DataToStringConverter;
+import docking.widgets.ListSelectionDialog;
 import ghidra.app.decompiler.ClangToken;
 import ghidra.app.decompiler.DecompileResults;
 import ghidra.app.decompiler.DecompilerHighlightService;
@@ -60,7 +62,6 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import javax.swing.JOptionPane;
 import cartographer.CoverageFile.*;
 
 //@formatter:off
@@ -513,18 +514,16 @@ public class CartographerPlugin extends ProgramPlugin {
             }
 
             // Ask the user which module to use
-            String response = (String)JOptionPane.showInputDialog(
-                null,
-                "Please select the code coverage module to use.",
-                "Select a Coverage Module",
-                JOptionPane.QUESTION_MESSAGE,
-                null,
-                modNames.toArray(),
-                modNames.get(0)
-            );
+            ListSelectionDialog<String> responseDialog = new ListSelectionDialog<String>(
+                "Select a Coverage Module", 
+                "Module", 
+                modNames, 
+                DataToStringConverter.stringDataToStringConverter);
 
-            // Bail if no option was chosen
-            if (response == null) {
+            responseDialog.show(tool.getActiveWindow());
+            String response = responseDialog.getSelectedItem();
+
+            if (responseDialog.wasCancelled()) {
                 return false;
             }
 
