@@ -5,9 +5,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -21,37 +21,26 @@ import docking.action.DockingAction;
 import docking.action.MenuData;
 import docking.tool.ToolConstants;
 import ghidra.app.decompiler.ClangToken;
-import ghidra.app.decompiler.DecompileResults;
+import ghidra.app.decompiler.CTokenHighlightMatcher;
+import ghidra.app.decompiler.DecompilerHighlighter;
 import ghidra.app.decompiler.DecompilerHighlightService;
-import ghidra.app.decompiler.component.ClangLayoutController;
-import ghidra.app.decompiler.component.DecompileData;
-import ghidra.app.decompiler.component.DecompilerCallbackHandler;
-import ghidra.app.decompiler.component.DecompilerController;
-import ghidra.app.decompiler.component.DecompilerPanel;
-import ghidra.app.decompiler.component.DecompilerUtils;
 import ghidra.app.plugin.PluginCategoryNames;
 import ghidra.app.plugin.ProgramPlugin;
 import ghidra.framework.plugintool.*;
 import ghidra.framework.plugintool.util.PluginStatus;
 import ghidra.framework.preferences.Preferences;
 import ghidra.program.model.address.Address;
+import ghidra.program.model.address.AddressSet;
+import ghidra.program.model.address.AddressSetView;
 import ghidra.program.model.address.AddressSpace;
+import ghidra.program.model.block.CodeBlock;
 import ghidra.program.model.listing.Function;
 import ghidra.program.model.listing.FunctionIterator;
-import ghidra.program.model.pcode.HighFunction;
 import ghidra.program.util.ProgramLocation;
-import ghidra.program.util.ProgramSelection;
 import ghidra.util.Swing;
-import ghidra.util.bean.field.AnnotatedTextFieldElement;
-import utility.function.Callback;
 import ghidra.app.plugin.core.colorizer.ColorizingService;
-import ghidra.app.plugin.core.decompile.DecompilerProvider;
-import docking.widgets.fieldpanel.FieldPanel;
-import docking.widgets.fieldpanel.support.FieldSelection;
 import docking.widgets.filechooser.GhidraFileChooser;
 import docking.widgets.filechooser.GhidraFileChooserMode;
-import generic.test.TestUtils;
-import ghidra.program.model.block.*;
 import ghidra.MiscellaneousPluginPackage;
 import java.awt.Color;
 import java.io.File;
@@ -78,18 +67,15 @@ import cartographer.CoverageFile.*;
  */
 public class CartographerPlugin extends ProgramPlugin {
 
-    private Address prevFunctionAddress;                // Previous location
-    private FieldPanel fieldPanel;                      // Decompiler field panel
-    private ClangLayoutController layoutController;     // Decompiler panel layout controller
-    private boolean loaded;                             // Whether code coverage has been loaded
-    private boolean updating;                           // Whether decompiler is updating
-    private DecompilerCallbackHandler callbackHandler;  // Generic decompiler callback handler
-    private ProgramLocation curLocation;                // Current location within the program
-    private CartographerProvider provider;              // Code coverage provider
+    private boolean loaded;                           // Whether code coverage has been loaded
+    private ProgramLocation curLocation;              // Current location within the program
+    private CartographerProvider provider;            // Code coverage provider
+    private DecompilerHighlighter decompilerHighlighter; // Decompiler background highlighter
 
     // Name of the DockingAction group
     private static final String TOOL_GROUP_NAME = "Code Coverage";
     private static final String TOOL_GROUP_ID = "covgroup";
+    private static final String DECOMPILER_HIGHLIGHTER_ID = "cartographer.coverage.decompiler";
 
     // List of address spaces so it's not fetched every time
     private static Map<String, AddressSpace> addressSpaceMap = new HashMap<>();
@@ -102,7 +88,7 @@ public class CartographerPlugin extends ProgramPlugin {
 
     /**
      * Constructor for the plugin.
-     * 
+     *
      * @param tool  Tool where the plugin will be added
      */
     public CartographerPlugin(PluginTool tool) {
@@ -116,131 +102,51 @@ public class CartographerPlugin extends ProgramPlugin {
         provider = new CartographerProvider(this);
         createActions();
 
-        // Get the decompiler service from the current tool
-        DecompilerProvider decompilerService = (DecompilerProvider)tool.getService(DecompilerHighlightService.class);
-
-        // Get the decompiler controller from the service
-        DecompilerController controller = decompilerService.getController();
-
-        // Get the decompiler panel
-        DecompilerPanel decompilerPanel = controller.getDecompilerPanel();
-
-        // Get the field panel
-        fieldPanel = decompilerPanel.getFieldPanel();
-
-        // Get the layout controller
-        layoutController = decompilerPanel.getLayoutController();
-
-        // Set the initial highlight color for decompiler highlights
-        fieldPanel.setHighlightColor(provider.getDecompilerColor());
-
         // Clear the loaded flag
         loaded = false;
 
-        // Clear the update flag
-        updating = false;
+        // Register a decompiler background highlighter using the official highlight service.
+        // The service calls back into the matcher for every token whenever a function is
+        // decompiled, so we do not need to intercept the DecompilerController callback
+        // handler (which became final in Ghidra 11.2+).
+        DecompilerHighlightService highlightService =
+            tool.getService(DecompilerHighlightService.class);
+        if (highlightService != null) {
+            decompilerHighlighter = highlightService.createHighlighter(
+                DECOMPILER_HIGHLIGHTER_ID,
+                new CTokenHighlightMatcher() {
 
-        // Get the existing callback handler for the decompiler controller
-        callbackHandler = (DecompilerCallbackHandler)TestUtils.getInstanceField("callbackHandler", controller);
+                    // Pre-built set of covered addresses for the current decompile pass.
+                    private AddressSetView coveredSet = new AddressSet();
 
-        // Set the callback handler of the decompiler controller
-        TestUtils.setInstanceField("callbackHandler", controller, new DecompilerCallbackHandler() {
-
-            // Set to trigger when decompilation data changes
-            @Override
-            public void decompileDataChanged(DecompileData decompileData) {
-
-                // Bail if currently updating
-                if (updating) {
-                    return;
-                }
-
-                // Set updating flag
-                updating = true;
-
-                // Only process if decompilation data exists
-                if (decompileData != null) {
-
-                    // Get result of the decompilation
-                    DecompileResults results = decompileData.getDecompileResults();
-
-                    // Only process if decompilation results were collected and were fully completed
-                    if (results != null && results.decompileCompleted()) {
-
-                        // Get the current high function
-                        HighFunction hf = decompileData.getHighFunction();
-
-                        // Colorize the data in the Decompiler window
-                        if (hf != null) {
-                            colorizeDecompilerAfterViewUpdate();
+                    // Rebuild the covered-address set at the start of each decompile pass so
+                    // that getTokenHighlight() lookups are O(log n) instead of O(blocks).
+                    @Override
+                    public void start(ghidra.app.decompiler.ClangNode root) {
+                        AddressSet set = new AddressSet();
+                        if (loaded && provider.getSelectedFile() != null) {
+                            provider.getSelectedFile()
+                                    .getCoverageFunctions()
+                                    .forEach((fn, ccFunc) -> {
+                                        for (CodeBlock block : ccFunc.getBlocksHit()) {
+                                            set.add(block);
+                                        }
+                                    });
                         }
+                        coveredSet = set;
+                    }
+
+                    @Override
+                    public Color getTokenHighlight(ClangToken token) {
+                        Address addr = token.getMinAddress();
+                        if (addr == null || coveredSet.isEmpty()) {
+                            return null;
+                        }
+                        return coveredSet.contains(addr) ? provider.getDecompilerColor() : null;
                     }
                 }
-
-                // Clear updating flag
-                updating = false;
-
-                // Flag that the decompilation data has changed to the callback handler
-                callbackHandler.decompileDataChanged(decompileData);
-            }
-
-            // Do all the other required things
-            @Override
-            public void contextChanged() {
-                callbackHandler.contextChanged();
-            }
-
-            @Override
-            public void setStatusMessage(String message) {
-                callbackHandler.setStatusMessage(message);
-            }
-
-            @Override
-            public void locationChanged(ProgramLocation programLocation) {
-                callbackHandler.locationChanged(programLocation);
-            }
-
-            @Override
-            public void selectionChanged(ProgramSelection programSelection) {
-                callbackHandler.selectionChanged(programSelection);
-            }
-
-            @Override
-            public void annotationClicked(AnnotatedTextFieldElement annotation, boolean newWindow) {
-                callbackHandler.annotationClicked(annotation, newWindow);
-            }
-
-            @Override
-            public void goToLabel(String labelName, boolean newWindow) {
-                callbackHandler.goToLabel(labelName, newWindow);
-            }
-
-            @Override
-            public void goToAddress(Address addr, boolean newWindow) {
-                callbackHandler.goToAddress(addr, newWindow);
-            }
-
-            @Override
-            public void goToScalar(long value, boolean newWindow) {
-                callbackHandler.goToScalar(value, newWindow);
-            }
-
-            @Override
-            public void exportLocation() {
-                callbackHandler.exportLocation();
-            }
-
-            @Override
-            public void goToFunction(Function function, boolean newWindow) {
-                callbackHandler.goToFunction(function, newWindow);
-            }
-
-            @Override
-            public void doWhenNotBusy(Callback c) {
-                callbackHandler.doWhenNotBusy(c);
-            }
-
-        });
+            );
+        }
     }
 
     /**
@@ -277,7 +183,7 @@ public class CartographerPlugin extends ProgramPlugin {
                 if (chooser.wasCancelled()) {
                     return;
                 }
-                
+
                 // Update the previous opened directory
                 Preferences.setProperty(LAST_IMPORT_CODE_COVERAGE_DIRECTORY, selectedFiles.get(0).getAbsolutePath());
 
@@ -286,10 +192,10 @@ public class CartographerPlugin extends ProgramPlugin {
                 for (AddressSpace space : spaces) {
                     addressSpaceMap.put(space.getName(), space);
                 }
-                
+
                 // Process each selected file
                 selectedFiles.forEach(selected -> {
-    
+
                     // Load the code coverage file
                     CoverageFile file = null;
                     try {
@@ -298,7 +204,7 @@ public class CartographerPlugin extends ProgramPlugin {
                     catch (IOException e) {
                         throw new AssertionError(e.getMessage());
                     }
-    
+
                     // Attempt to process the code coverage file
                     if (!processCoverageFile(file)) {
                     	return;
@@ -328,116 +234,26 @@ public class CartographerPlugin extends ProgramPlugin {
     }
 
     /**
-     * Calls the decompiler colorizer for the current decompiler view.
+     * Re-applies decompiler highlights for the currently selected coverage file.
      * <p>
-     * Note: This is only called when changing the Decompiler highlight color.
+     * Call this whenever the selected file or the decompiler highlight color changes.
+     * The registered {@link DecompilerHighlighter} will invoke our
+     * {@link CTokenHighlightMatcher}, which re-builds the covered-address set from
+     * the current coverage data and colors each matching token.
      * </p>
      */
     public void colorizeDecompiler() {
-
-        // Get the current address in the program
-        Address currentAddress = curLocation.getAddress();
-
-        // Get the function containing the address
-        Function currentFunction = currentProgram.getFunctionManager().getFunctionContaining(currentAddress);
-
-        // Only run if current function exists under the cursor
-        if (currentFunction != null) {
-
-            // Get the current function's code coverage data
-            CoverageFunction ccFunc = provider.getSelectedFile().getCoverageFunction(currentFunction);
-
-            // Update the decompiler highlights for the current function
-            colorizeDecompiler(ccFunc);
-
+        if (decompilerHighlighter != null) {
+            decompilerHighlighter.applyHighlights();
         }
-    }
-
-    /**
-     * Colorizes the decompiler view for the selected function.
-     * 
-     * @param ccFunc  Code coverage data for the current function
-     */
-    private void colorizeDecompiler(CoverageFunction ccFunc) {
-
-        // Allocate a new selection
-        FieldSelection selection = new FieldSelection();
-
-        // Reset the highlights
-        fieldPanel.clearHighlight();
-
-        // Loop through each block that was hit
-        for (CodeBlock block : ccFunc.getBlocksHit()) {
-
-            // Get the decompiler tokens and associated selection range
-            List<ClangToken> tokens = DecompilerUtils.getTokens(layoutController.getRoot(), block);
-            FieldSelection subSelection = DecompilerUtils.getFieldSelection(tokens);
-
-            // Add each decompiler hit range to be highlighted
-            for (int i = 0; i < subSelection.getNumRanges(); i++) {
-                selection.addRange(DecompilerUtils.getFieldSelection(tokens).getFieldRange(i));
-            }
-        }
-
-        // Highlight the selections
-        fieldPanel.setHighlight(selection);
-    }
-
-    /**
-     * Calls the decompiler colorizer after a Decompiler view update.
-     */
-    public void colorizeDecompilerAfterViewUpdate() {
-
-        // Bail if not loaded
-        if (!loaded) {
-            return;
-        }
-
-        // Bail if function yeeted
-        if (currentProgram == null) {
-            return;
-        }
-
-        // Get the current function
-        Function curFunction = currentProgram.getFunctionManager().getFunctionContaining(curLocation.getAddress());
-        if (curFunction == null) {
-            return;
-        }
-
-        // Get the address of the current function
-        Address curFunctionAddress = curFunction.getEntryPoint();
-
-        // Only do thing if function changed
-        if (curFunctionAddress.equals(prevFunctionAddress)) {
-            return;
-        }
-
-        // Update the decompiler highlights for the current function
-        CoverageFunction ccFunc = provider.getSelectedFile().getCoverageFunction(curFunction);
-
-        // Make sure the function exists
-        if (ccFunc != null) {
-
-            // Update the decompiler highlights for the current function
-            colorizeDecompiler(ccFunc);
-        }
-
-        // Update previous location
-        prevFunctionAddress = curFunctionAddress;
     }
 
     /**
      * Colorizes the lines in the listing (disassembly) view.
-     * 
+     *
      * @param file  Coverage file to be processed
      */
     public void colorizeListing(CoverageFile file) {
-
-        // Get the current address in the program
-        Address currentAddress = curLocation.getAddress();
-
-        // Get the function containing the address
-        Function currentFunction = currentProgram.getFunctionManager().getFunctionContaining(currentAddress);
 
         // Get the colorizer
         ColorizingService colorizer = tool.getService(ColorizingService.class);
@@ -454,23 +270,18 @@ public class CartographerPlugin extends ProgramPlugin {
             }
         });
 
-        // Only run if current function exists under the cursor
-        if (currentFunction != null) {
-
-            // Update the decompiler highlights for the current function
-            CoverageFunction ccFunc = file.getCoverageFunction(currentFunction);
-            colorizeDecompiler(ccFunc);
-        }
-
         // End the transaction
         currentProgram.endTransaction(transactionId, true);
+
+        // Re-apply decompiler highlights with the updated coverage data
+        colorizeDecompiler();
     }
 
     /**
      * Loads the given code coverage file.
-     * 
+     *
      * @param file  Coverage file to load
-     * 
+     *
      * @return      True if successfully loaded coverage file, false if not
      */
     public boolean loadCoverageFile(CoverageFile file) {
@@ -490,18 +301,12 @@ public class CartographerPlugin extends ProgramPlugin {
             provider.add(ccFunc);
         }
 
-        // Get the current address in the program
-        Address currentAddress = curLocation.getAddress();
-
-        // Set default previous function address
-        prevFunctionAddress = currentProgram.getListing()
+        // Set default previous function address (kept for compatibility)
+        currentProgram.getListing()
                 .getDefaultRootModule()
                 .getMinAddress()
                 .getAddressSpace()
                 .getMinAddress();
-
-        // Get the function containing the current address
-        Function currentFunction = currentProgram.getFunctionManager().getFunctionContaining(currentAddress);
 
         // Check if this was a DrCov file
         if (file.getType().equals("drcov")) {
@@ -551,31 +356,23 @@ public class CartographerPlugin extends ProgramPlugin {
         // Populate the coverage function blocks
         file.populateBlocks(currentProgram);
 
-        // Only run if current function exists under the cursor
-        if (currentFunction != null) {
-
-            // Get the current function's code coverage data
-            CoverageFunction ccFunc = file.getCoverageFunction(currentFunction);
-
-            // Update the decompiler highlights for the current function
-            colorizeDecompiler(ccFunc);
-
-        }
+        // Apply decompiler highlights for the newly loaded coverage data
+        colorizeDecompiler();
 
         return true;
     }
-    
+
     /**
      * Processes the given code coverage file.
-     * 
+     *
      * @param file  Coverage file to process
-     * 
+     *
      * @return      Whether or not the coverage file was successfully processed
      */
     public boolean processCoverageFile(CoverageFile file) {
-    	
+
     	// Only process if no errors were encountered
-        if (file.getStatusCode() != CoverageFile.STATUS.OK) { 
+        if (file.getStatusCode() != CoverageFile.STATUS.OK) {
             Utils.showError(
                 file.getStatusCode().toString(),
                 file.getStatusMessage()
@@ -590,7 +387,7 @@ public class CartographerPlugin extends ProgramPlugin {
 
         // Set the selected file for the provider
         provider.setSelectedFile(file);
-        
+
         // Set to loaded
         loaded = true;
 
@@ -607,27 +404,18 @@ public class CartographerPlugin extends ProgramPlugin {
 
         // Add the file data to the list of loaded files
         loadedFiles.put(file.getId(), file);
-        
+
         // Successfully processed
         return true;
     }
 
     /**
      * Gets the provider for the plugin.
-     * 
+     *
      * @return  Plugin provider
      */
     public CartographerProvider getProvider() {
         return provider;
-    }
-
-    /**
-     * Sets the highlight color for the Decompiler view.
-     * 
-     * @param color  Color to use for decompilation highlighting
-     */
-    public void setDecompilerHighlightColor(Color color) {
-        fieldPanel.setHighlightColor(color);
     }
 
     @Override
@@ -643,23 +431,27 @@ public class CartographerPlugin extends ProgramPlugin {
     @Override
     protected void dispose() {
         super.dispose();
+        if (decompilerHighlighter != null) {
+            decompilerHighlighter.dispose();
+            decompilerHighlighter = null;
+        }
         provider.dispose();
     }
-    
+
     /**
      * Gets an address space by its name.
-     * 
+     *
      * @param addressSpaceName  Name of the address space
-     * 
+     *
      * @return                  Address space associated with the given name
      */
     public static AddressSpace getAddressSpace(String addressSpaceName) {
         return addressSpaceMap.get(addressSpaceName);
     }
-    
+
     /**
      * Gets the list of currently-loaded files.
-     * 
+     *
      * @return  Hashmap of loaded files
      */
     public static Map<Integer, CoverageFile> getLoadedFiles() {

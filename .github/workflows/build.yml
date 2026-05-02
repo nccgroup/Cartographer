@@ -16,6 +16,7 @@ jobs:
       matrix:
         version:
           - "11.1.2"
+          - "12.0"
 
     steps:
       - name: Clone Repository
